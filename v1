@@ -79,7 +79,6 @@ local FruitInternal = {
 }
 
 local blacklist = {}
-local isHopping = false
 local fruitLog = {}
 local isTeleporting = false
 local teleportQueue = {}
@@ -122,21 +121,54 @@ local function LoadBlacklist()
 end
 
 local function SelectTeam()
-    pcall(function()
+    -- Bọc toàn bộ trong pcall để bắt mọi lỗi
+    local success, err = pcall(function()
         if not game:IsLoaded() then
             game.Loaded:Wait()
         end
         task.wait(3)
         
         local realteam = _G.autoteam or "Pirates"
-        local pg = plr:WaitForChild("PlayerGui")
-        local mainmal = pg:WaitForChild("Main (minimal)")
-        local chooseteambtn = mainmal.ChooseTeam.Container[realteam].Frame.TextButton
+        local pg = plr:FindFirstChild("PlayerGui")
         
-        repeat
-            task.wait()
-        until chooseteambtn.AbsoluteSize.X > 0 and chooseteambtn.AbsoluteSize.Y > 0
+        -- Nếu không có PlayerGui thì thoát
+        if not pg then
+            return
+        end
         
+        local mainmal = pg:FindFirstChild("Main (minimal)")
+        
+        -- Nếu không có Main (minimal) thì thoát, không báo lỗi
+        if not mainmal then
+            return
+        end
+        
+        local chooseTeam = mainmal:FindFirstChild("ChooseTeam")
+        if not chooseTeam then
+            return
+        end
+        
+        local container = chooseTeam:FindFirstChild("Container")
+        if not container then
+            return
+        end
+        
+        local teamContainer = container:FindFirstChild(realteam)
+        if not teamContainer then
+            return
+        end
+        
+        local frame = teamContainer:FindFirstChild("Frame")
+        if not frame then
+            return
+        end
+        
+        local chooseteambtn = frame:FindFirstChild("TextButton")
+        if not chooseteambtn then
+            return
+        end
+        
+        -- Click button
         local inset = GuiService:GetGuiInset()
         local pos = chooseteambtn.AbsolutePosition
         local size = chooseteambtn.AbsoluteSize
@@ -149,6 +181,11 @@ local function SelectTeam()
         
         task.wait(2.5)
     end)
+    
+    -- Nếu có lỗi, chỉ in ra console để debug, không ảnh hưởng script
+    if not success then
+        warn("⚠️ SelectTeam skipped: " .. tostring(err))
+    end
 end
 
 local function isInCharacter(obj)
@@ -254,98 +291,220 @@ local function SendWebhook(fruitName)
     end
 end
 
+local function GetRequest()
+    return (syn and syn.request)
+        or (http and http.request)
+        or http_request
+        or request
+end
+
 local function GetServerList()
     local servers = {}
-    pcall(function()
-        local response = HttpService:GetAsync("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?limit=100")
-        local data = HttpService:JSONDecode(response)
-        if data and data.data then
+    local req = GetRequest()
+
+    if not req then
+        warn("[ServerHop] Executor không có HTTP request function")
+        return servers
+    end
+
+    local cursor = nil
+    local maxPages = 5
+
+    for _ = 1, maxPages do
+        local url =
+            "https://games.roblox.com/v1/games/"
+            .. game.PlaceId
+            .. "/servers/Public?sortOrder=Asc&limit=100"
+
+        if cursor then
+            url = url .. "&cursor=" .. HttpService:UrlEncode(cursor)
+        end
+
+        local ok, response = pcall(function()
+            return req({
+                Url = url,
+                Method = "GET",
+                Headers = {
+                    ["Content-Type"] = "application/json"
+                }
+            })
+        end)
+
+        if not ok or not response then
+            warn("[ServerHop] Request failed:", response)
+            break
+        end
+
+        local body = response.Body or response.body
+
+        if not body then
+            warn("[ServerHop] Response không có Body")
+            break
+        end
+
+        local decodeOk, data = pcall(function()
+            return HttpService:JSONDecode(body)
+        end)
+
+        if not decodeOk or not data then
+            warn("[ServerHop] JSON decode failed:", data)
+            break
+        end
+
+        if data.data then
             for _, server in ipairs(data.data) do
-                if server.id and server.id ~= game.JobId then
+                if server.id
+                    and server.id ~= game.JobId
+                    and server.playing
+                    and server.maxPlayers
+                then
                     table.insert(servers, {
                         id = server.id,
-                        count = server.playing or 0,
-                        max = server.maxPlayers or 32
+                        count = server.playing,
+                        max = server.maxPlayers
                     })
                 end
             end
         end
-    end)
+
+        cursor = data.nextPageCursor
+
+        if not cursor then
+            break
+        end
+
+        task.wait(0.15)
+    end
+
     return servers
 end
 
-local function QueueTeleport(serverId)
-    if isTeleporting then
-        table.insert(teleportQueue, serverId)
-        return
-    end
-    
-    isTeleporting = true
-    pcall(function()
-        TeleportService:TeleportToPlaceInstance(game.PlaceId, serverId, plr)
-    end)
-    
-    local start = tick()
-    while isTeleporting and tick() - start < CONFIG.HopTimeout do
-        task.wait(0.5)
-    end
-    isTeleporting = false
-    
-    if #teleportQueue > 0 then
-        local nextServer = table.remove(teleportQueue, 1)
-        task.wait(1)
-        QueueTeleport(nextServer)
-    end
+
+local function IsBlacklisted(serverId)
+    return table.find(blacklist, serverId) ~= nil
 end
 
+
+local function AddToBlacklist(serverId)
+    if not serverId or serverId == "" then
+        return
+    end
+
+    if not table.find(blacklist, serverId) then
+        table.insert(blacklist, serverId)
+    end
+
+    while #blacklist > CONFIG.MaxBlacklist do
+        table.remove(blacklist, 1)
+    end
+
+    SaveBlacklist()
+end
+
+
+local function QueueTeleport(serverId)
+    if not serverId or serverId == "" then
+        return false
+    end
+
+    if isTeleporting then
+        return false
+    end
+
+    isTeleporting = true
+
+    UpdateStatus(
+        "🚀 Teleporting...",
+        Color3.fromRGB(255, 100, 100)
+    )
+
+    local success, err = pcall(function()
+        TeleportService:TeleportToPlaceInstance(
+            game.PlaceId,
+            serverId,
+            plr
+        )
+    end)
+
+    if not success then
+        warn("[ServerHop] Teleport failed:", err)
+
+        isTeleporting = false
+
+        return false
+    end
+
+    -- Nếu teleport thành công thì game sẽ chuyển place.
+    -- Không cần tự chạy queue ở đây.
+    return true
+end
+
+
 local function AutoHop()
-    if isHopping then return end
-    isHopping = true
-    
-    UpdateStatus("🔄 Finding server...", Color3.fromRGB(255, 200, 0))
+    if isTeleporting then
+        return
+    end
+
+    UpdateStatus(
+        "🔄 Finding server...",
+        Color3.fromRGB(255, 200, 0)
+    )
+
     task.wait(0.5)
-    
+
     local allServers = GetServerList()
+
+    if #allServers == 0 then
+        UpdateStatus(
+            "❌ Cannot get server list",
+            Color3.fromRGB(255, 80, 80)
+        )
+
+        warn("[ServerHop] Không lấy được server nào.")
+        return false
+    end
+
     local candidates = {}
-    
+
     for _, server in ipairs(allServers) do
-        local isBlacklisted = false
-        for _, bl in ipairs(blacklist) do
-            if bl == server.id then
-                isBlacklisted = true
-                break
-            end
-        end
-        if not isBlacklisted and server.count < server.max then
+        if not IsBlacklisted(server.id)
+            and server.count < server.max
+        then
             table.insert(candidates, server)
         end
     end
-    
-    table.sort(candidates, function(a, b) return a.count < b.count end)
-    
-    if #candidates > 0 then
-        local target = candidates[1]
-        
-        if game.JobId then
-            table.insert(blacklist, game.JobId)
-            if #blacklist > CONFIG.MaxBlacklist then
-                local keep = {}
-                for i = #blacklist - CONFIG.MaxBlacklist + 1, #blacklist do
-                    table.insert(keep, blacklist[i])
-                end
-                blacklist = keep
-            end
-            SaveBlacklist()
-        end
-        
-        UpdateStatus("🚀 Hopping to server... (" .. target.count .. "/" .. target.max .. ")", Color3.fromRGB(255, 100, 100))
-        QueueTeleport(target.id)
-    else
-        UpdateStatus("⏳ No server found, retrying...", Color3.fromRGB(255, 100, 0))
-        task.wait(3)
+
+    if #candidates == 0 then
+        UpdateStatus(
+            "⏳ No available server",
+            Color3.fromRGB(255, 150, 0)
+        )
+
+        return false
     end
-    
-    isHopping = false
+
+    -- Ưu tiên server ít người nhất
+    table.sort(candidates, function(a, b)
+        return a.count < b.count
+    end)
+
+    local target = candidates[1]
+
+    -- Blacklist server hiện tại trước khi hop
+    if game.JobId and game.JobId ~= "" then
+        AddToBlacklist(game.JobId)
+    end
+
+    UpdateStatus(
+        "🚀 Hopping... (" ..
+        target.count ..
+        "/" ..
+        target.max ..
+        ")",
+        Color3.fromRGB(255, 100, 100)
+    )
+
+    return QueueTeleport(target.id)
 end
 
 local function CreateUI()
