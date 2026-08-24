@@ -1,7 +1,8 @@
-if _G.FruitFarmRunning then return end
-_G.FruitFarmRunning = true
-
-_G.WebhookUrl = _G.WebhookUrl or ""
+-- getgenv().WebhookUrl = ""
+getgenv().FruitFarmRunning = false
+if getgenv().FruitFarmRunning then return end
+getgenv().FruitFarmRunning = true
+getgenv().WebhookUrl = getgenv().WebhookUrl or ""
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -98,7 +99,7 @@ local function CreateUI()
     
     copyBtn.MouseButton1Click:Connect(function()
         pcall(function()
-            ClipboardService:SetAsync("discord.gg/mSrMzVuc3h")
+            setclipboard("discord.gg/mSrMzVuc3h")
             if copyBtn then
                 copyBtn.Text = "✅ Copied Discord link!"
                 task.wait(3)
