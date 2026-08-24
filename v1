@@ -20,8 +20,8 @@ local CONFIG = {
     MaxBlacklist = 30,
     HopDelay = 8,
     ScanInterval = 1.5,
-    HopTimeout = 10,          -- thêm dòng này
-    BlacklistFile = "fruit_farm_blacklist.txt",  -- thêm dòng này
+    HopTimeout = 10,
+    BlacklistFile = "fruit_farm_blacklist.txt",
     FruitList = {
         "Dragon-Dragon", "Kitsune-Kitsune", "Leopard-Leopard", "Spirit-Spirit",
         "Control-Control", "Venom-Venom", "Shadow-Shadow", "Dough-Dough",
@@ -36,7 +36,6 @@ local CONFIG = {
     }
 }
 
--- === FRUIT INTERNAL MAP (từ script kia) ===
 local FruitInternal = {
     ["Rocket Fruit"] = "Rocket-Rocket",
     ["Spin Fruit"] = "Spin-Spin",
@@ -87,8 +86,8 @@ local fruitLog = {}
 local isTeleporting = false
 local teleportQueue = {}
 local statusLabel = nil
+local collectedCount = 0  -- <--- THÊM DÒNG NÀY
 
--- === FILE SYSTEM (Delta) ===
 local function SaveBlacklist()
     pcall(function()
         if writefile then
@@ -110,7 +109,6 @@ local function LoadBlacklist()
                             table.insert(blacklist, line)
                         end
                     end
-                    -- Giới hạn số lượng
                     if #blacklist > CONFIG.MaxBlacklist then
                         local keep = {}
                         for i = #blacklist - CONFIG.MaxBlacklist + 1, #blacklist do
@@ -125,16 +123,6 @@ local function LoadBlacklist()
     end)
 end
 
-local function ClearBlacklist()
-    pcall(function()
-        blacklist = {}
-        if writefile then
-            writefile(CONFIG.BlacklistFile, "")
-        end
-    end)
-end
-
--- === AUTO TEAM (click chuột ảo - từ script kia) ===
 local function SelectTeam()
     pcall(function()
         if not game:IsLoaded() then
@@ -165,7 +153,6 @@ local function SelectTeam()
     end)
 end
 
--- === CHECK IF IN CHARACTER (từ script kia) ===
 local function isInCharacter(obj)
     local parent = obj.Parent
     while parent do
@@ -177,21 +164,21 @@ local function isInCharacter(obj)
     return false
 end
 
--- === LỤM TRÁI (tp handle - từ script kia) ===
 local function BringFruit(tool)
-    if not tool or not tool:IsA("Tool") then return end
-    if not string.find(tool.Name, "Fruit") then return end
-    if isInCharacter(tool) then return end
+    if not tool or not tool:IsA("Tool") then return false end
+    if not string.find(tool.Name, "Fruit") then return false end
+    if isInCharacter(tool) then return false end
     
     local hrp = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
     local handle = tool:FindFirstChild("Handle")
     
     if hrp and handle then
         handle.CFrame = hrp.CFrame + Vector3.new(0, 0, 0)
+        return true
     end
+    return false
 end
 
--- === SCAN FRUITS (dùng FruitList + BringFruit) ===
 local function ScanFruits()
     local found = 0
     pcall(function()
@@ -205,8 +192,7 @@ local function ScanFruits()
                     end
                 end
                 if isValid then
-                    local success = BringFruit(v)
-                    if success then
+                    if BringFruit(v) then
                         found = found + 1
                     end
                     task.wait(0.1)
@@ -217,7 +203,6 @@ local function ScanFruits()
     return found
 end
 
--- === STORE FRUITS (giữ nguyên từ script cũ) ===
 local function StoreFruits()
     local stored = {}
     pcall(function()
@@ -250,21 +235,19 @@ local function StoreFruits()
     return stored
 end
 
--- === SEND WEBHOOK ===
 local function SendWebhook(fruitName)
     if _G.WebhookUrl and _G.WebhookUrl ~= "" then
         pcall(function()
             local embed = {
                 ["embeds"] = {{
-                    ["title"] = "🍎 Fruit Farm - Collected",
+                    ["title"] = "🍎 Fruit Collected",
                     ["color"] = 0xFF0000,
                     ["fields"] = {
                         {["name"] = "Fruit", ["value"] = "```" .. fruitName .. "```", ["inline"] = true},
                         {["name"] = "Player", ["value"] = "```" .. plr.Name .. "```", ["inline"] = true},
-                        {["name"] = "Server", ["value"] = "```" .. game.JobId .. "```", ["inline"] = false},
-                        {["name"] = "Total Collected", ["value"] = "```" .. collectedCount .. " fruits```", ["inline"] = true}
+                        {["name"] = "Server", ["value"] = "```" .. game.JobId .. "```", ["inline"] = false}
                     },
-                    ["footer"] = {["text"] = "Fruit Farm - by malority"},
+                    ["footer"] = {["text"] = "Foxname ss2 Fruit Farm - by Malority"},
                     ["timestamp"] = os.date("!%Y-%m-%dT%TZ")
                 }}
             }
@@ -273,8 +256,6 @@ local function SendWebhook(fruitName)
     end
 end
 
-
--- === GET SERVER LIST ===
 local function GetServerList()
     local servers = {}
     pcall(function()
@@ -295,8 +276,6 @@ local function GetServerList()
     return servers
 end
 
-
--- === QUEUE TELEPORT ===
 local function QueueTeleport(serverId)
     if isTeleporting then
         table.insert(teleportQueue, serverId)
@@ -304,13 +283,10 @@ local function QueueTeleport(serverId)
     end
     
     isTeleporting = true
-    local success = false
     pcall(function()
         TeleportService:TeleportToPlaceInstance(game.PlaceId, serverId, plr)
-        success = true
     end)
     
-    -- Timeout để không bị kẹt
     local start = tick()
     while isTeleporting and tick() - start < CONFIG.HopTimeout do
         task.wait(0.5)
@@ -324,7 +300,6 @@ local function QueueTeleport(serverId)
     end
 end
 
--- === AUTO HOP ===
 local function AutoHop()
     if isHopping then return end
     isHopping = true
@@ -375,7 +350,6 @@ local function AutoHop()
     isHopping = false
 end
 
--- === UI ===
 local function CreateUI()
     if plr.PlayerGui:FindFirstChild("FruitFarmUI") then return end
     
@@ -425,7 +399,6 @@ local function CreateUI()
     statusLabel.TextSize = 14
     statusLabel.Parent = mainFrame
     
-    -- Copy Discord Button
     local copyBtn = Instance.new("TextButton")
     copyBtn.Size = UDim2.new(0.8, 0, 0, 30)
     copyBtn.Position = UDim2.new(0.1, 0, 0, 95)
@@ -455,19 +428,18 @@ local function UpdateStatus(text, color)
     end
 end
 
--- === MAIN PROCESS ===
 local function MainProcess()
     LoadBlacklist()
     SelectTeam()
     CreateUI()
-    UpdateStatus("✅ Ready (" .. collectedCount .. " collected)", Color3.fromRGB(0, 255, 0))
+    UpdateStatus("✅ Ready", Color3.fromRGB(0, 255, 0))
     
     while task.wait(CONFIG.ScanInterval) do
         UpdateStatus("🔍 Scanning for fruits...", Color3.fromRGB(255, 255, 0))
         local found = ScanFruits()
         
         if found > 0 then
-            UpdateStatus("📦 Storing fruits... (" .. found .. " found)", Color3.fromRGB(0, 200, 255))
+            UpdateStatus("📦 Storing fruits...", Color3.fromRGB(0, 200, 255))
             local stored = StoreFruits()
             
             if #stored > 0 then
