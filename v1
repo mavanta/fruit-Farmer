@@ -1,17 +1,20 @@
--- getgenv().WebhookUrl = ""
 local FruitFarmRunning = false
-if FruitFarmRunning = true then return end
+if FruitFarmRunning then return end
 FruitFarmRunning = true
-local WebhookUrl = getgenv().WebhookUrl or ""
+
+_G.WebhookUrl = _G.WebhookUrl or ""
+_G.autoteam = _G.autoteam or "Pirates"
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
 local TeleportService = game:GetService("TeleportService")
+local GuiService = game:GetService("GuiService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local Workspace = game:GetService("Workspace")
 
 local plr = Players.LocalPlayer
 local Remote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
-local AnalyticsEvent = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Net") and ReplicatedStorage.Modules.Net:FindFirstChild("RE/OnAnalyticsActivity")
 
 local CONFIG = {
     MaxBlacklist = 30,
@@ -31,6 +34,51 @@ local CONFIG = {
     }
 }
 
+-- === FRUIT INTERNAL MAP (từ script kia) ===
+local FruitInternal = {
+    ["Rocket Fruit"] = "Rocket-Rocket",
+    ["Spin Fruit"] = "Spin-Spin",
+    ["Blade Fruit"] = "Blade-Blade",
+    ["Spring Fruit"] = "Spring-Spring",
+    ["Bomb Fruit"] = "Bomb-Bomb",
+    ["Smoke Fruit"] = "Smoke-Smoke",
+    ["Spike Fruit"] = "Spike-Spike",
+    ["Flame Fruit"] = "Flame-Flame",
+    ["Ice Fruit"] = "Ice-Ice",
+    ["Sand Fruit"] = "Sand-Sand",
+    ["Dark Fruit"] = "Dark-Dark",
+    ["Eagle Fruit"] = "Eagle-Eagle",
+    ["Diamond Fruit"] = "Diamond-Diamond",
+    ["Light Fruit"] = "Light-Light",
+    ["Rubber Fruit"] = "Rubber-Rubber",
+    ["Ghost Fruit"] = "Ghost-Ghost",
+    ["Magma Fruit"] = "Magma-Magma",
+    ["Quake Fruit"] = "Quake-Quake",
+    ["Buddha Fruit"] = "Buddha-Buddha",
+    ["Love Fruit"] = "Love-Love",
+    ["Creation Fruit"] = "Creation-Creation",
+    ["Spider Fruit"] = "Spider-Spider",
+    ["Sound Fruit"] = "Sound-Sound",
+    ["Phoenix Fruit"] = "Phoenix-Phoenix",
+    ["Portal Fruit"] = "Portal-Portal",
+    ["Lightning Fruit"] = "Lightning-Lightning",
+    ["Pain Fruit"] = "Pain-Pain",
+    ["Blizzard Fruit"] = "Blizzard-Blizzard",
+    ["Gravity Fruit"] = "Gravity-Gravity",
+    ["Mammoth Fruit"] = "Mammoth-Mammoth",
+    ["T-Rex Fruit"] = "T-Rex-T-Rex",
+    ["Dough Fruit"] = "Dough-Dough",
+    ["Shadow Fruit"] = "Shadow-Shadow",
+    ["Venom Fruit"] = "Venom-Venom",
+    ["Gas Fruit"] = "Gas-Gas",
+    ["Spirit Fruit"] = "Spirit-Spirit",
+    ["Tiger Fruit"] = "Tiger-Tiger",
+    ["Yeti Fruit"] = "Yeti-Yeti",
+    ["Kitsune Fruit"] = "Kitsune-Kitsune",
+    ["Control Fruit"] = "Control-Control",
+    ["Dragon Fruit"] = "Dragon-Dragon"
+}
+
 local blacklist = {}
 local isHopping = false
 local fruitLog = {}
@@ -38,180 +86,68 @@ local isTeleporting = false
 local teleportQueue = {}
 local statusLabel = nil
 
-local function CreateUI()
-    if plr.PlayerGui:FindFirstChild("FruitFarmUI") then return end
-    
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "FruitFarmUI"
-    screenGui.Parent = plr.PlayerGui
-    
-    local mainFrame = Instance.new("Frame")
-    mainFrame.Size = UDim2.new(0, 280, 0, 100)
-    mainFrame.Position = UDim2.new(0.5, -140, 0.5, -50)
-    mainFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 20)
-    mainFrame.BackgroundTransparency = 0.1
-    mainFrame.BorderSizePixel = 2
-    mainFrame.BorderColor3 = Color3.fromRGB(255, 50, 50)
-    mainFrame.Active = true
-    mainFrame.Draggable = true
-    mainFrame.Parent = screenGui
-    
-    local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, 0, 0, 35)
-    title.Position = UDim2.new(0, 0, 0, 0)
-    title.Text = "🍎 Fruit Farm"
-    title.TextColor3 = Color3.fromRGB(255, 50, 50)
-    title.BackgroundTransparency = 1
-    title.Font = Enum.Font.GothamBold
-    title.TextSize = 22
-    title.Parent = mainFrame
-    
-    local sub = Instance.new("TextLabel")
-    sub.Size = UDim2.new(1, 0, 0, 20)
-    sub.Position = UDim2.new(0, 0, 0, 35)
-    sub.Text = "by Malority"
-    sub.TextColor3 = Color3.fromRGB(200, 150, 150)
-    sub.BackgroundTransparency = 1
-    sub.Font = Enum.Font.GothamMedium
-    sub.TextSize = 13
-    sub.Parent = mainFrame
-    
-    statusLabel = Instance.new("TextLabel")
-    statusLabel.Size = UDim2.new(1, 0, 0, 30)
-    statusLabel.Position = UDim2.new(0, 0, 0, 58)
-    statusLabel.Text = "🔄 Initializing..."
-    statusLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
-    statusLabel.BackgroundTransparency = 1
-    statusLabel.Font = Enum.Font.GothamMedium
-    statusLabel.TextSize = 14
-    statusLabel.Parent = mainFrame
-
-    -- Copy Discord Button
-    local copyBtn = Instance.new("TextButton")
-    copyBtn.Size = UDim2.new(0.8, 0, 0, 30)
-    copyBtn.Position = UDim2.new(0.1, 0, 0, 95)
-    copyBtn.Text = "📋 Join Discord"
-    copyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    copyBtn.BackgroundColor3 = Color3.fromRGB(88, 101, 242)
-    copyBtn.Font = Enum.Font.GothamBold
-    copyBtn.TextSize = 14
-    copyBtn.Parent = mainFrame
-    
-    copyBtn.MouseButton1Click:Connect(function()
-        pcall(function()
-            setclipboard("discord.gg/mSrMzVuc3h")
-            if copyBtn then
-                copyBtn.Text = "✅ Copied Discord link!"
-                task.wait(3)
-                copyBtn.Text = "📋 Join Discord"
-            end
-        end)
-    end)
-    
-    return screenGui
-end
-    
-    return screenGui
-end
-
-local function UpdateStatus(text, color)
-    if statusLabel then
-        statusLabel.Text = text
-        if color then
-            statusLabel.TextColor3 = color
+-- === AUTO TEAM (click chuột ảo - từ script kia) ===
+local function SelectTeam()
+    pcall(function()
+        if not game:IsLoaded() then
+            game.Loaded:Wait()
         end
+        task.wait(3)
+        
+        local realteam = _G.autoteam or "Pirates"
+        local pg = plr:WaitForChild("PlayerGui")
+        local mainmal = pg:WaitForChild("Main (minimal)")
+        local chooseteambtn = mainmal.ChooseTeam.Container[realteam].Frame.TextButton
+        
+        repeat
+            task.wait()
+        until chooseteambtn.AbsoluteSize.X > 0 and chooseteambtn.AbsoluteSize.Y > 0
+        
+        local inset = GuiService:GetGuiInset()
+        local pos = chooseteambtn.AbsolutePosition
+        local size = chooseteambtn.AbsoluteSize
+        local x = pos.X + size.X / 2
+        local y = pos.Y + size.Y / 2 + inset.Y
+        
+        VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
+        task.wait()
+        VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
+        
+        task.wait(2.5)
+    end)
+end
+
+-- === CHECK IF IN CHARACTER (từ script kia) ===
+local function isInCharacter(obj)
+    local parent = obj.Parent
+    while parent do
+        if parent:FindFirstChild("Humanoid") then
+            return true
+        end
+        parent = parent.Parent
+    end
+    return false
+end
+
+-- === LỤM TRÁI (tp handle - từ script kia) ===
+local function BringFruit(tool)
+    if not tool or not tool:IsA("Tool") then return end
+    if not string.find(tool.Name, "Fruit") then return end
+    if isInCharacter(tool) then return end
+    
+    local hrp = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+    local handle = tool:FindFirstChild("Handle")
+    
+    if hrp and handle then
+        handle.CFrame = hrp.CFrame + Vector3.new(0, 3, 3)
     end
 end
 
-local function SendWebhook(fruitName)
-    if WebhookUrl == "" then return end
-    
-    local embed = {
-        ["embeds"] = {{
-            ["title"] = "🍎 Fruit Collected",
-            ["color"] = 0xFF0000,
-            ["fields"] = {
-                {["name"] = "Fruit", ["value"] = "```" .. fruitName .. "```", ["inline"] = true},
-                {["name"] = "Player", ["value"] = "```" .. plr.Name .. "```", ["inline"] = true},
-                {["name"] = "JobID", ["value"] = "```" .. game.JobId .. "```", ["inline"] = false}
-            },
-            ["footer"] = {["text"] = "discord.gg/mSrMzVuc3h"},
-            ["timestamp"] = os.date("!%Y-%m-%dT%TZ")
-        }}
-    }
-    
-    pcall(function()
-        HttpService:PostAsync(WebhookUrl, HttpService:JSONEncode(embed), Enum.HttpContentType.ApplicationJson)
-    end)
-end
-
-local function SelectTeam()
-    pcall(function()
-        if AnalyticsEvent then
-            AnalyticsEvent:FireServer("TeamSelect/Team/Pirates")
-        end
-        if Remote then
-            Remote:InvokeServer("SetTeam2", "Pirates")
-        end
-    end)
-end
-
-local function StoreFruits()
-    pcall(function()
-        local stored = {}
-        
-        for _, v in pairs(plr.Backpack:GetChildren()) do
-            if v:IsA("Tool") and string.find(v.Name, "Fruit") then
-                local success = Remote:InvokeServer("StoreFruit", v.Name)
-                if success then
-                    table.insert(stored, v.Name)
-                end
-            end
-        end
-        
-        if plr.Character then
-            for _, v in pairs(plr.Character:GetChildren()) do
-                if v:IsA("Tool") and string.find(v.Name, "Fruit") then
-                    local success = Remote:InvokeServer("StoreFruit", v.Name)
-                    if success then
-                        table.insert(stored, v.Name)
-                    end
-                end
-            end
-        end
-        
-        for _, fruitName in ipairs(stored) do
-            if not table.find(fruitLog, fruitName) then
-                table.insert(fruitLog, fruitName)
-                SendWebhook(fruitName)
-            end
-        end
-    end)
-end
-
-local function BringFruit(fruitModel)
-    if not fruitModel or not fruitModel:IsA("Model") then return end
-    local hrp = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    
-    local targetCF = hrp.CFrame + Vector3.new(0, 3, 3)
-    pcall(function()
-        if fruitModel.PrimaryPart then
-            fruitModel:SetPrimaryPartCFrame(targetCF)
-        else
-            for _, part in pairs(fruitModel:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CFrame = targetCF
-                end
-            end
-        end
-    end)
-end
-
+-- === SCAN FRUITS (dùng FruitList + BringFruit) ===
 local function ScanFruits()
     pcall(function()
-        for _, v in pairs(workspace:GetDescendants()) do
-            if v:IsA("Model") and string.find(v.Name, "Fruit") then
+        for _, v in pairs(Workspace:GetDescendants()) do
+            if v:IsA("Tool") and string.find(v.Name, "Fruit") then
                 local isValid = false
                 for _, fruitName in ipairs(CONFIG.FruitList) do
                     if string.find(v.Name, fruitName) or string.find(v.Name, string.gsub(fruitName, "-.*", "")) then
@@ -228,12 +164,70 @@ local function ScanFruits()
     end)
 end
 
+-- === STORE FRUITS (giữ nguyên từ script cũ) ===
+local function StoreFruits()
+    pcall(function()
+        local stored = {}
+        
+        for _, v in pairs(plr.Backpack:GetChildren()) do
+            if v:IsA("Tool") and string.find(v.Name, "Fruit") then
+                local internal = FruitInternal[v.Name]
+                if internal then
+                    local success = Remote:InvokeServer("StoreFruit", internal, v)
+                    if success then
+                        table.insert(stored, v.Name)
+                    end
+                end
+            end
+        end
+        
+        if plr.Character then
+            for _, v in pairs(plr.Character:GetChildren()) do
+                if v:IsA("Tool") and string.find(v.Name, "Fruit") then
+                    local internal = FruitInternal[v.Name]
+                    if internal then
+                        local success = Remote:InvokeServer("StoreFruit", internal, v)
+                        if success then
+                            table.insert(stored, v.Name)
+                        end
+                    end
+                end
+            end
+        end
+        
+        -- Webhook
+        for _, fruitName in ipairs(stored) do
+            if not table.find(fruitLog, fruitName) then
+                table.insert(fruitLog, fruitName)
+                if _G.WebhookUrl and _G.WebhookUrl ~= "" then
+                    pcall(function()
+                        local embed = {
+                            ["embeds"] = {{
+                                ["title"] = "🍎 Fruit Collected",
+                                ["color"] = 0xFF0000,
+                                ["fields"] = {
+                                    {["name"] = "Fruit", ["value"] = "```" .. fruitName .. "```", ["inline"] = true},
+                                    {["name"] = "Player", ["value"] = "```" .. plr.Name .. "```", ["inline"] = true},
+                                    {["name"] = "JobId", ["value"] = "```" .. game.JobId .. "```", ["inline"] = false}
+                                },
+                                ["footer"] = {["text"] = "Foxname ss2 Farm fruits - by Malority"},
+                                ["timestamp"] = os.date("!%Y-%m-%dT%TZ")
+                            }}
+                        }
+                        HttpService:PostAsync(_G.WebhookUrl, HttpService:JSONEncode(embed), Enum.HttpContentType.ApplicationJson)
+                    end)
+                end
+            end
+        end
+    end)
+end
+
+-- === GET SERVER LIST ===
 local function GetServerList()
     local servers = {}
     pcall(function()
-        local http = game:GetService("HttpService")
-        local response = http:GetAsync("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?limit=100")
-        local data = http:JSONDecode(response)
+        local response = HttpService:GetAsync("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?limit=100")
+        local data = HttpService:JSONDecode(response)
         if data and data.data then
             for _, server in ipairs(data.data) do
                 if server.id and server.id ~= game.JobId then
@@ -249,6 +243,7 @@ local function GetServerList()
     return servers
 end
 
+-- === QUEUE TELEPORT ===
 local function QueueTeleport(serverId)
     if isTeleporting then
         table.insert(teleportQueue, serverId)
@@ -270,6 +265,7 @@ local function QueueTeleport(serverId)
     end
 end
 
+-- === AUTO HOP ===
 local function AutoHop()
     if isHopping then return end
     isHopping = true
@@ -314,9 +310,89 @@ local function AutoHop()
     isHopping = false
 end
 
+-- === UI ===
+local function CreateUI()
+    if plr.PlayerGui:FindFirstChild("FruitFarmUI") then return end
+    
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "FruitFarmUI"
+    screenGui.ResetOnSpawn = false
+    screenGui.Parent = plr:WaitForChild("PlayerGui")
+    
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Size = UDim2.new(0, 280, 0, 140)
+    mainFrame.Position = UDim2.new(0.5, -140, 0.5, -70)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 20)
+    mainFrame.BackgroundTransparency = 0.1
+    mainFrame.BorderSizePixel = 2
+    mainFrame.BorderColor3 = Color3.fromRGB(255, 50, 50)
+    mainFrame.Active = true
+    mainFrame.Draggable = true
+    mainFrame.Parent = screenGui
+    
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0, 35)
+    title.Position = UDim2.new(0, 0, 0, 0)
+    title.Text = "🍎 Fruit Farm | Foxname ss2"
+    title.TextColor3 = Color3.fromRGB(255, 50, 50)
+    title.BackgroundTransparency = 1
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 22
+    title.Parent = mainFrame
+    
+    local sub = Instance.new("TextLabel")
+    sub.Size = UDim2.new(1, 0, 0, 20)
+    sub.Position = UDim2.new(0, 0, 0, 35)
+    sub.Text = "by Malority"
+    sub.TextColor3 = Color3.fromRGB(200, 150, 150)
+    sub.BackgroundTransparency = 1
+    sub.Font = Enum.Font.GothamMedium
+    sub.TextSize = 13
+    sub.Parent = mainFrame
+    
+    statusLabel = Instance.new("TextLabel")
+    statusLabel.Size = UDim2.new(1, 0, 0, 30)
+    statusLabel.Position = UDim2.new(0, 0, 0, 58)
+    statusLabel.Text = "🔄 Initializing..."
+    statusLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.Font = Enum.Font.GothamMedium
+    statusLabel.TextSize = 14
+    statusLabel.Parent = mainFrame
+    
+    -- Copy Discord Button
+    local copyBtn = Instance.new("TextButton")
+    copyBtn.Size = UDim2.new(0.8, 0, 0, 30)
+    copyBtn.Position = UDim2.new(0.1, 0, 0, 95)
+    copyBtn.Text = "📋 Join Discord"
+    copyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    copyBtn.BackgroundColor3 = Color3.fromRGB(88, 101, 242)
+    copyBtn.Font = Enum.Font.GothamBold
+    copyBtn.TextSize = 14
+    copyBtn.Parent = mainFrame
+    
+    copyBtn.MouseButton1Click:Connect(function()
+        setclipboard("discord.gg/mSrMzVuc3h")
+        copyBtn.Text = "Copied!"
+        task.wait(2.5)
+        copyBtn.Text = "📋 Join Discord"
+    end)
+    
+    return screenGui
+end
+
+local function UpdateStatus(text, color)
+    if statusLabel then
+        statusLabel.Text = text
+        if color then
+            statusLabel.TextColor3 = color
+        end
+    end
+end
+
+-- === MAIN PROCESS ===
 local function MainProcess()
     SelectTeam()
-    wait(1)
     
     CreateUI()
     UpdateStatus("✅ Ready", Color3.fromRGB(0, 255, 0))
@@ -328,7 +404,7 @@ local function MainProcess()
         UpdateStatus("📦 Storing fruits...", Color3.fromRGB(0, 200, 255))
         StoreFruits()
         
-        UpdateStatus("✅ Collected complete", Color3.fromRGB(0, 255, 0))
+        UpdateStatus("✅ Collected", Color3.fromRGB(0, 255, 0))
         
         task.wait(CONFIG.HopDelay - CONFIG.ScanInterval)
         
