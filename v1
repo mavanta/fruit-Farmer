@@ -18,8 +18,6 @@ local Remote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
 
 local CONFIG = {
     MaxBlacklist = 30,
-    HopDelay = 8,
-    ScanInterval = 1.5,
     HopTimeout = 10,
     BlacklistFile = "fruit_farm_blacklist.txt",
     FruitList = {
@@ -86,7 +84,7 @@ local fruitLog = {}
 local isTeleporting = false
 local teleportQueue = {}
 local statusLabel = nil
-local collectedCount = 0  -- <--- THÊM DÒNG NÀY
+local collectedCount = 0
 
 local function SaveBlacklist()
     pcall(function()
@@ -434,11 +432,15 @@ local function MainProcess()
     CreateUI()
     UpdateStatus("✅ Ready", Color3.fromRGB(0, 255, 0))
     
-    while task.wait(CONFIG.ScanInterval) do
+    -- Vòng lặp chính: Scan -> Store -> Hop ngay lập tức
+    while task.wait(1) do
+        -- Scan fruits
         UpdateStatus("🔍 Scanning for fruits...", Color3.fromRGB(255, 255, 0))
+        task.wait(2)
         local found = ScanFruits()
         
         if found > 0 then
+            -- Store fruits
             UpdateStatus("📦 Storing fruits...", Color3.fromRGB(0, 200, 255))
             local stored = StoreFruits()
             
@@ -458,12 +460,12 @@ local function MainProcess()
             UpdateStatus("❌ No Fruit", Color3.fromRGB(255, 100, 100))
         end
         
-        task.wait(CONFIG.HopDelay - CONFIG.ScanInterval)
-        
-        UpdateStatus("🔄 Preparing to hop...", Color3.fromRGB(255, 200, 0))
+        task.wait(5)
+        UpdateStatus("🔄 Hopping to new server...", Color3.fromRGB(255, 200, 0))
         AutoHop()
         
-        task.wait(2)
+        -- Đợi 1 chút để ổn định trước khi scan tiếp
+        task.wait(1)
     end
 end
 
