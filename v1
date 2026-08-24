@@ -20,6 +20,8 @@ local CONFIG = {
     MaxBlacklist = 30,
     HopDelay = 8,
     ScanInterval = 1.5,
+    HopTimeout = 10,          -- thêm dòng này
+    BlacklistFile = "fruit_farm_blacklist.txt",  -- thêm dòng này
     FruitList = {
         "Dragon-Dragon", "Kitsune-Kitsune", "Leopard-Leopard", "Spirit-Spirit",
         "Control-Control", "Venom-Venom", "Shadow-Shadow", "Dough-Dough",
@@ -191,6 +193,7 @@ end
 
 -- === SCAN FRUITS (dùng FruitList + BringFruit) ===
 local function ScanFruits()
+    local found = 0
     pcall(function()
         for _, v in pairs(Workspace:GetDescendants()) do
             if v:IsA("Tool") and string.find(v.Name, "Fruit") then
@@ -202,19 +205,22 @@ local function ScanFruits()
                     end
                 end
                 if isValid then
-                    BringFruit(v)
+                    local success = BringFruit(v)
+                    if success then
+                        found = found + 1
+                    end
                     task.wait(0.1)
                 end
             end
         end
     end)
+    return found
 end
 
 -- === STORE FRUITS (giữ nguyên từ script cũ) ===
 local function StoreFruits()
+    local stored = {}
     pcall(function()
-        local stored = {}
-        
         for _, v in pairs(plr.Backpack:GetChildren()) do
             if v:IsA("Tool") and string.find(v.Name, "Fruit") then
                 local internal = FruitInternal[v.Name]
@@ -240,33 +246,33 @@ local function StoreFruits()
                 end
             end
         end
-        
-        -- Webhook
-        for _, fruitName in ipairs(stored) do
-            if not table.find(fruitLog, fruitName) then
-                table.insert(fruitLog, fruitName)
-                if _G.WebhookUrl and _G.WebhookUrl ~= "" then
-                    pcall(function()
-                        local embed = {
-                            ["embeds"] = {{
-                                ["title"] = "🍎 Fruit Collected",
-                                ["color"] = 0xFF0000,
-                                ["fields"] = {
-                                    {["name"] = "Fruit", ["value"] = "```" .. fruitName .. "```", ["inline"] = true},
-                                    {["name"] = "Player", ["value"] = "```" .. plr.Name .. "```", ["inline"] = true},
-                                    {["name"] = "JobId", ["value"] = "```" .. game.JobId .. "```", ["inline"] = false}
-                                },
-                                ["footer"] = {["text"] = "Foxname ss2 Farm fruits - by Malority"},
-                                ["timestamp"] = os.date("!%Y-%m-%dT%TZ")
-                            }}
-                        }
-                        HttpService:PostAsync(_G.WebhookUrl, HttpService:JSONEncode(embed), Enum.HttpContentType.ApplicationJson)
-                    end)
-                end
-            end
-        end
     end)
+    return stored
 end
+
+-- === SEND WEBHOOK ===
+local function SendWebhook(fruitName)
+    if _G.WebhookUrl and _G.WebhookUrl ~= "" then
+        pcall(function()
+            local embed = {
+                ["embeds"] = {{
+                    ["title"] = "🍎 Fruit Farm - Collected",
+                    ["color"] = 0xFF0000,
+                    ["fields"] = {
+                        {["name"] = "Fruit", ["value"] = "```" .. fruitName .. "```", ["inline"] = true},
+                        {["name"] = "Player", ["value"] = "```" .. plr.Name .. "```", ["inline"] = true},
+                        {["name"] = "Server", ["value"] = "```" .. game.JobId .. "```", ["inline"] = false},
+                        {["name"] = "Total Collected", ["value"] = "```" .. collectedCount .. " fruits```", ["inline"] = true}
+                    },
+                    ["footer"] = {["text"] = "Fruit Farm - by malority"},
+                    ["timestamp"] = os.date("!%Y-%m-%dT%TZ")
+                }}
+            }
+            HttpService:PostAsync(_G.WebhookUrl, HttpService:JSONEncode(embed), Enum.HttpContentType.ApplicationJson)
+        end)
+    end
+end
+
 
 -- === GET SERVER LIST ===
 local function GetServerList()
@@ -289,6 +295,7 @@ local function GetServerList()
     return servers
 end
 
+
 -- === QUEUE TELEPORT ===
 local function QueueTeleport(serverId)
     if isTeleporting then
@@ -297,11 +304,17 @@ local function QueueTeleport(serverId)
     end
     
     isTeleporting = true
+    local success = false
     pcall(function()
         TeleportService:TeleportToPlaceInstance(game.PlaceId, serverId, plr)
+        success = true
     end)
     
-    task.wait(2)
+    -- Timeout để không bị kẹt
+    local start = tick()
+    while isTeleporting and tick() - start < CONFIG.HopTimeout do
+        task.wait(0.5)
+    end
     isTeleporting = false
     
     if #teleportQueue > 0 then
@@ -317,6 +330,7 @@ local function AutoHop()
     isHopping = true
     
     UpdateStatus("🔄 Finding server...", Color3.fromRGB(255, 200, 0))
+    task.wait(0.5)
     
     local allServers = GetServerList()
     local candidates = {}
@@ -342,17 +356,16 @@ local function AutoHop()
         if game.JobId then
             table.insert(blacklist, game.JobId)
             if #blacklist > CONFIG.MaxBlacklist then
-                -- Giữ 30 server gần nhất
                 local keep = {}
                 for i = #blacklist - CONFIG.MaxBlacklist + 1, #blacklist do
                     table.insert(keep, blacklist[i])
                 end
                 blacklist = keep
             end
-            SaveBlacklist()  -- Lưu vào file
+            SaveBlacklist()
         end
         
-        UpdateStatus("🚀 Hopping to server...", Color3.fromRGB(255, 100, 100))
+        UpdateStatus("🚀 Hopping to server... (" .. target.count .. "/" .. target.max .. ")", Color3.fromRGB(255, 100, 100))
         QueueTeleport(target.id)
     else
         UpdateStatus("⏳ No server found, retrying...", Color3.fromRGB(255, 100, 0))
@@ -444,19 +457,34 @@ end
 
 -- === MAIN PROCESS ===
 local function MainProcess()
+    LoadBlacklist()
     SelectTeam()
-    
     CreateUI()
-    UpdateStatus("✅ Ready", Color3.fromRGB(0, 255, 0))
+    UpdateStatus("✅ Ready (" .. collectedCount .. " collected)", Color3.fromRGB(0, 255, 0))
     
     while task.wait(CONFIG.ScanInterval) do
         UpdateStatus("🔍 Scanning for fruits...", Color3.fromRGB(255, 255, 0))
-        ScanFruits()
+        local found = ScanFruits()
         
-        UpdateStatus("📦 Storing fruits...", Color3.fromRGB(0, 200, 255))
-        StoreFruits()
-        
-        UpdateStatus("✅ Collected", Color3.fromRGB(0, 255, 0))
+        if found > 0 then
+            UpdateStatus("📦 Storing fruits... (" .. found .. " found)", Color3.fromRGB(0, 200, 255))
+            local stored = StoreFruits()
+            
+            if #stored > 0 then
+                for _, fruitName in ipairs(stored) do
+                    if not table.find(fruitLog, fruitName) then
+                        table.insert(fruitLog, fruitName)
+                        collectedCount = collectedCount + 1
+                        SendWebhook(fruitName)
+                    end
+                end
+                UpdateStatus("✅ Collected " .. #stored .. " fruit(s)", Color3.fromRGB(0, 255, 0))
+            else
+                UpdateStatus("❌ No Fruit", Color3.fromRGB(255, 100, 100))
+            end
+        else
+            UpdateStatus("❌ No Fruit", Color3.fromRGB(255, 100, 100))
+        end
         
         task.wait(CONFIG.HopDelay - CONFIG.ScanInterval)
         
