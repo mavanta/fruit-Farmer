@@ -1,8 +1,8 @@
 -- getgenv().WebhookUrl = ""
-getgenv().FruitFarmRunning = false
-if getgenv().FruitFarmRunning then return end
-getgenv().FruitFarmRunning = true
-getgenv().WebhookUrl = getgenv().WebhookUrl or ""
+local FruitFarmRunning = false
+if FruitFarmRunning = true then return end
+FruitFarmRunning = true
+local WebhookUrl = getgenv().WebhookUrl or ""
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -124,7 +124,7 @@ local function UpdateStatus(text, color)
 end
 
 local function SendWebhook(fruitName)
-    if getgenv().WebhookUrl == "" then return end
+    if WebhookUrl == "" then return end
     
     local embed = {
         ["embeds"] = {{
@@ -141,7 +141,7 @@ local function SendWebhook(fruitName)
     }
     
     pcall(function()
-        HttpService:PostAsync(getgenv().WebhookUrl, HttpService:JSONEncode(embed), Enum.HttpContentType.ApplicationJson)
+        HttpService:PostAsync(WebhookUrl, HttpService:JSONEncode(embed), Enum.HttpContentType.ApplicationJson)
     end)
 end
 
