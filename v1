@@ -86,6 +86,52 @@ local isTeleporting = false
 local teleportQueue = {}
 local statusLabel = nil
 
+-- === FILE SYSTEM (Delta) ===
+local function SaveBlacklist()
+    pcall(function()
+        if writefile then
+            local data = table.concat(blacklist, "\n")
+            writefile(CONFIG.BlacklistFile, data)
+        end
+    end)
+end
+
+local function LoadBlacklist()
+    pcall(function()
+        if isfile and isfile(CONFIG.BlacklistFile) then
+            if readfile then
+                local content = readfile(CONFIG.BlacklistFile)
+                if content and content ~= "" then
+                    blacklist = {}
+                    for line in string.gmatch(content, "[^\n]+") do
+                        if line ~= "" then
+                            table.insert(blacklist, line)
+                        end
+                    end
+                    -- Giới hạn số lượng
+                    if #blacklist > CONFIG.MaxBlacklist then
+                        local keep = {}
+                        for i = #blacklist - CONFIG.MaxBlacklist + 1, #blacklist do
+                            table.insert(keep, blacklist[i])
+                        end
+                        blacklist = keep
+                        SaveBlacklist()
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function ClearBlacklist()
+    pcall(function()
+        blacklist = {}
+        if writefile then
+            writefile(CONFIG.BlacklistFile, "")
+        end
+    end)
+end
+
 -- === AUTO TEAM (click chuột ảo - từ script kia) ===
 local function SelectTeam()
     pcall(function()
@@ -139,7 +185,7 @@ local function BringFruit(tool)
     local handle = tool:FindFirstChild("Handle")
     
     if hrp and handle then
-        handle.CFrame = hrp.CFrame + Vector3.new(0, 3, 3)
+        handle.CFrame = hrp.CFrame + Vector3.new(0, 0, 0)
     end
 end
 
@@ -296,8 +342,14 @@ local function AutoHop()
         if game.JobId then
             table.insert(blacklist, game.JobId)
             if #blacklist > CONFIG.MaxBlacklist then
-                blacklist = {}
+                -- Giữ 30 server gần nhất
+                local keep = {}
+                for i = #blacklist - CONFIG.MaxBlacklist + 1, #blacklist do
+                    table.insert(keep, blacklist[i])
+                end
+                blacklist = keep
             end
+            SaveBlacklist()  -- Lưu vào file
         end
         
         UpdateStatus("🚀 Hopping to server...", Color3.fromRGB(255, 100, 100))
