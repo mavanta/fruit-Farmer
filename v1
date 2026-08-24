@@ -1,6 +1,5 @@
 -- getgenv().WebhookUrl = ""
-
-
+getgenv().FruitFarmRunning = false
 if getgenv().FruitFarmRunning then return end
 getgenv().FruitFarmRunning = true
 getgenv().WebhookUrl = getgenv().WebhookUrl or ""
