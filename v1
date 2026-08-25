@@ -86,7 +86,7 @@ local FruitInternal = {
 local blacklist = {}
 local fruitLog = {}
 local isTeleporting = false
-local teleportQueue = {}
+local pendingHopServer = nil
 local statusLabel = nil
 local collectedCount = 0
 
@@ -101,27 +101,43 @@ end
 
 local function LoadBlacklist()
     pcall(function()
-        if isfile and isfile(CONFIG.BlacklistFile) then
-            if readfile then
-                local content = readfile(CONFIG.BlacklistFile)
-                if content and content ~= "" then
-                    blacklist = {}
-                    for line in string.gmatch(content, "[^\n]+") do
-                        if line ~= "" then
-                            table.insert(blacklist, line)
-                        end
-                    end
-                    if #blacklist > CONFIG.MaxBlacklist then
-                        local keep = {}
-                        for i = #blacklist - CONFIG.MaxBlacklist + 1, #blacklist do
-                            table.insert(keep, blacklist[i])
-                        end
-                        blacklist = keep
-                        SaveBlacklist()
-                    end
-                end
+        if not isfile or not readfile then
+            warn("[ServerHop] Executor không hỗ trợ file API")
+            return
+        end
+
+        if not isfile(CONFIG.BlacklistFile) then
+            blacklist = {}
+            return
+        end
+
+        local content = readfile(CONFIG.BlacklistFile)
+
+        if not content or content == "" then
+            blacklist = {}
+            return
+        end
+
+        blacklist = {}
+
+        for line in string.gmatch(content, "[^\r\n]+") do
+            if line ~= "" and not table.find(blacklist, line) then
+                table.insert(blacklist, line)
             end
         end
+
+        -- Nếu file đã đủ 30 thì clear luôn
+        if #blacklist >= CONFIG.MaxBlacklist then
+            blacklist = {}
+            SaveBlacklist()
+
+            print("[ServerHop] Loaded blacklist was full -> cleared")
+        end
+
+        print(
+            "[ServerHop] Loaded blacklist:",
+            #blacklist
+        )
     end)
 end
 
@@ -421,25 +437,36 @@ local function IsBlacklisted(serverId)
     return table.find(blacklist, serverId) ~= nil
 end
 
-
 local function AddToBlacklist(serverId)
     if not serverId or serverId == "" then
         return
     end
 
-    if not table.find(blacklist, serverId) then
-        table.insert(blacklist, serverId)
+    if IsBlacklisted(serverId) then
+        return
     end
 
-    while #blacklist > CONFIG.MaxBlacklist do
-        table.remove(blacklist, 1)
+    -- Đủ 30 server thì clear TOÀN BỘ
+    if #blacklist >= CONFIG.MaxBlacklist then
+        blacklist = {}
+        SaveBlacklist()
+        print("[ServerHop] Blacklist full -> cleared")
     end
 
+    table.insert(blacklist, serverId)
+
+    -- Lưu xuống file thật
     SaveBlacklist()
+
+    print(
+        "[ServerHop] Blacklisted:",
+        serverId,
+        "(" .. #blacklist .. "/" .. CONFIG.MaxBlacklist .. ")"
+    )
 end
 
 
-local function QueueTeleport(serverId)
+local function TeleportToServer(serverId)
     if not serverId or serverId == "" then
         return false
     end
@@ -448,10 +475,16 @@ local function QueueTeleport(serverId)
         return false
     end
 
+    if IsBlacklisted(serverId) then
+        warn("[ServerHop] Target is blacklisted:", serverId)
+        return false
+    end
+
     isTeleporting = true
+    pendingHopServer = serverId
 
     UpdateStatus(
-        "🚀 Teleporting...",
+        "🚀 Hopping...",
         Color3.fromRGB(255, 100, 100)
     )
 
@@ -464,47 +497,95 @@ local function QueueTeleport(serverId)
     end)
 
     if not success then
-        warn("[ServerHop] Teleport failed:", err)
+        warn("[ServerHop] Teleport call failed:", err)
 
+        -- Bảo hộ: server teleport lỗi ngay lập tức
+        AddToBlacklist(serverId)
+
+        pendingHopServer = nil
         isTeleporting = false
 
-        return false
-    end
-
-    -- Nếu teleport thành công thì game sẽ chuyển place.
-    -- Không cần tự chạy queue ở đây.
-    return true
-end
-
-
-local function AutoHop()
-    if isTeleporting then
-        return
-    end
-
-    UpdateStatus(
-        "🔄 Finding server...",
-        Color3.fromRGB(255, 200, 0)
-    )
-
-    task.wait(0.5)
-
-    local allServers = GetServerList()
-
-    if #allServers == 0 then
         UpdateStatus(
-            "❌ Cannot get server list",
+            "❌ Hop failed",
             Color3.fromRGB(255, 80, 80)
         )
 
-        warn("[ServerHop] Không lấy được server nào.")
         return false
+    end
+
+    return true
+end
+
+TeleportService.TeleportInitFailed:Connect(function(
+    teleportPlayer,
+    teleportResult,
+    errorMessage
+)
+    if teleportPlayer ~= plr then
+        return
+    end
+
+    if not pendingHopServer then
+        return
+    end
+
+    local failedServer = pendingHopServer
+
+    warn(
+        "[ServerHop] Teleport failed:",
+        failedServer,
+        teleportResult,
+        errorMessage
+    )
+
+    -- Server full / chết / teleport lỗi
+    AddToBlacklist(failedServer)
+
+    pendingHopServer = nil
+    isTeleporting = false
+
+    UpdateStatus(
+        "⚠️",
+        Color3.fromRGB(255, 150, 0)
+    )
+
+    -- Fallback đúng 1 lần, không queue
+    task.delay(0.5, function()
+        if isTeleporting then
+            return
+        end
+
+        local target = GetRandomAvailableServer()
+
+        if not target then
+            return
+        end
+
+        print(
+            "[ServerHop] Fallback:",
+            target.id,
+            target.count .. "/" .. target.max
+        )
+
+        TeleportToServer(target.id)
+    end)
+end)
+
+
+local function GetRandomAvailableServer()
+    local allServers = GetServerList()
+
+    if #allServers == 0 then
+        warn("[ServerHop] No server list")
+        return nil
     end
 
     local candidates = {}
 
     for _, server in ipairs(allServers) do
-        if not IsBlacklisted(server.id)
+        if server.id
+            and server.id ~= game.JobId
+            and not IsBlacklisted(server.id)
             and server.count < server.max
         then
             table.insert(candidates, server)
@@ -512,36 +593,47 @@ local function AutoHop()
     end
 
     if #candidates == 0 then
+        return nil
+    end
+
+    -- Không queue, chỉ lấy 1 server
+    return candidates[math.random(1, #candidates)]
+end
+
+
+local function HopServer()
+    if isTeleporting then
+        return false
+    end
+
+    UpdateStatus(
+        "🔍 Finding server...",
+        Color3.fromRGB(255, 200, 0)
+    )
+
+    local target = GetRandomAvailableServer()
+
+    if not target then
         UpdateStatus(
-            "⏳ No available server",
-            Color3.fromRGB(255, 150, 0)
+            "❌ No available server",
+            Color3.fromRGB(255, 80, 80)
         )
 
         return false
     end
 
-    -- Ưu tiên server ít người nhất
-    table.sort(candidates, function(a, b)
-        return a.count < b.count
-    end)
-
-    local target = candidates[1]
-
-    -- Blacklist server hiện tại trước khi hop
+    -- Blacklist server hiện tại trước khi rời
     if game.JobId and game.JobId ~= "" then
         AddToBlacklist(game.JobId)
     end
 
-    UpdateStatus(
-        "🚀 Hopping... (" ..
-        target.count ..
-        "/" ..
-        target.max ..
-        ")",
-        Color3.fromRGB(255, 100, 100)
+    print(
+        "[ServerHop] Target:",
+        target.id,
+        target.count .. "/" .. target.max
     )
 
-    return QueueTeleport(target.id)
+    return TeleportToServer(target.id)
 end
 
 local function CreateUI()
@@ -677,6 +769,7 @@ local function MainProcess()
                 Color3.fromRGB(255, 100, 100)
             )
         end
+        task.wait(2.5)
         UpdateStatus("🔄 Hopping to new server...", Color3.fromRGB(255, 200, 0))
         AutoHop()
         task.wait(1)
