@@ -30,7 +30,12 @@ local CONFIG = {
         "Rubber-Rubber", "Light-Light", "Diamond-Diamond", "Dark-Dark",
         "Sand-Sand", "Ice-Ice", "Falcon-Falcon", "Flame-Flame",
         "Spike-Spike", "Smoke-Smoke", "Bomb-Bomb", "Spring-Spring",
-        "Chop-Chop", "Spin-Spin", "Rocket-Rocket"
+        "Chop-Chop", "Spin-Spin", "Rocket-Rocket", "Eagle-Eagle",
+        "Creation-Creation",
+        "Lightning-Lightning",
+        "Gas-Gas",
+        "Tiger-Tiger",
+        "Yeti-Yeti",
     }
 }
 
@@ -215,58 +220,90 @@ local function BringFruit(tool)
 end
 
 local function ScanFruits()
-    local found = 0
+    local found = {}
+
     pcall(function()
-        for _, v in pairs(Workspace:GetDescendants()) do
+        for _, v in ipairs(Workspace:GetDescendants()) do
             if v:IsA("Tool") and string.find(v.Name, "Fruit") then
+
                 local isValid = false
+
                 for _, fruitName in ipairs(CONFIG.FruitList) do
-                    if string.find(v.Name, fruitName) or string.find(v.Name, string.gsub(fruitName, "-.*", "")) then
+                    local shortName = string.gsub(fruitName, "-.*", "")
+
+                    if string.find(v.Name, fruitName)
+                        or string.find(v.Name, shortName)
+                    then
                         isValid = true
                         break
                     end
                 end
+
                 if isValid then
+                    print("[FruitFarm] Found fruit:", v.Name)
+
                     if BringFruit(v) then
-                        found = found + 1
+                        table.insert(found, v.Name)
                     end
-                    task.wait(0.1)
+
+                    task.wait(0.3)
                 end
             end
         end
     end)
+
     return found
 end
 
-local function StoreFruits()
+local function storeAllFruits()
     local stored = {}
-    pcall(function()
-        for _, v in pairs(plr.Backpack:GetChildren()) do
-            if v:IsA("Tool") and string.find(v.Name, "Fruit") then
-                local internal = FruitInternal[v.Name]
-                if internal then
-                    local success = Remote:InvokeServer("StoreFruit", internal, v)
-                    if success then
-                        table.insert(stored, v.Name)
-                    end
-                end
-            end
+
+    local function tryStore(tool)
+        if not tool or not tool:IsA("Tool") then
+            return
         end
-        
-        if plr.Character then
-            for _, v in pairs(plr.Character:GetChildren()) do
-                if v:IsA("Tool") and string.find(v.Name, "Fruit") then
-                    local internal = FruitInternal[v.Name]
-                    if internal then
-                        local success = Remote:InvokeServer("StoreFruit", internal, v)
-                        if success then
-                            table.insert(stored, v.Name)
-                        end
-                    end
-                end
-            end
+
+        if not string.find(tool.Name, "Fruit") then
+            return
         end
-    end)
+
+        local internal = FruitInternal[tool.Name]
+
+        if not internal then
+            warn("[FruitFarm] Missing internal name:", tool.Name)
+            return
+        end
+
+        local success, result = pcall(function()
+            return Remote:InvokeServer("StoreFruit", internal, tool)
+        end)
+
+        if success and result then
+            table.insert(stored, tool.Name)
+
+            print(
+                "[FruitFarm] Stored:",
+                tool.Name
+            )
+        else
+            warn(
+                "[FruitFarm] Store failed:",
+                tool.Name,
+                tostring(result)
+            )
+        end
+    end
+
+    for _, tool in ipairs(plr.Backpack:GetChildren()) do
+        tryStore(tool)
+    end
+
+    if plr.Character then
+        for _, tool in ipairs(plr.Character:GetChildren()) do
+            tryStore(tool)
+        end
+    end
+
     return stored
 end
 
@@ -597,12 +634,24 @@ local function MainProcess()
         UpdateStatus("🔍 Scanning for fruits...", Color3.fromRGB(255, 255, 0))
         task.wait(2)
         local found = ScanFruits()
+
+        if #found > 0 then
+            UpdateStatus(
+                "📦 Waiting for fruit...",
+                Color3.fromRGB(0, 200, 255)
+            )
         
-        if found > 0 then
-            -- Store fruits
-            UpdateStatus("📦 Storing fruits...", Color3.fromRGB(0, 200, 255))
-            local stored = StoreFruits()
-            
+            -- Cho fruit thời gian chuyển vào Backpack
+            task.wait(1)
+        
+            local stored = storeAllFruits()
+        
+            -- Thử lại nếu lần đầu fruit chưa kịp vào inventory
+            if #stored == 0 then
+                task.wait(1)
+                stored = storeAllFruits()
+            end
+        
             if #stored > 0 then
                 for _, fruitName in ipairs(stored) do
                     if not table.find(fruitLog, fruitName) then
@@ -611,19 +660,25 @@ local function MainProcess()
                         SendWebhook(fruitName)
                     end
                 end
-                UpdateStatus("✅ Collected " .. #stored .. " fruit(s)", Color3.fromRGB(0, 255, 0))
+        
+                UpdateStatus(
+                    "✅ Stored " .. #stored .. " fruit(s)",
+                    Color3.fromRGB(0, 255, 0)
+                )
             else
-                UpdateStatus("❌ No Fruit", Color3.fromRGB(255, 100, 100))
+                UpdateStatus(
+                    "❌ Fruit found but store failed",
+                    Color3.fromRGB(255, 100, 100)
+                )
             end
         else
-            UpdateStatus("❌ No Fruit", Color3.fromRGB(255, 100, 100))
+            UpdateStatus(
+                "❌ No Fruit",
+                Color3.fromRGB(255, 100, 100)
+            )
         end
-        
-        task.wait(5)
         UpdateStatus("🔄 Hopping to new server...", Color3.fromRGB(255, 200, 0))
         AutoHop()
-        
-        -- Đợi 1 chút để ổn định trước khi scan tiếp
         task.wait(1)
     end
 end
