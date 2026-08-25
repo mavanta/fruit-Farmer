@@ -18,7 +18,6 @@ local Remote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
 
 local CONFIG = {
     MaxBlacklist = 30,
-    HopTimeout = 10,
     BlacklistFile = "fruit_farm_blacklist.txt",
     FruitList = {
         "Dragon-Dragon", "Kitsune-Kitsune", "Leopard-Leopard", "Spirit-Spirit",
@@ -101,44 +100,36 @@ end
 
 local function LoadBlacklist()
     pcall(function()
-        if not isfile or not readfile then
-            warn("[ServerHop] Executor không hỗ trợ file API")
-            return
-        end
-
-        if not isfile(CONFIG.BlacklistFile) then
-            blacklist = {}
-            return
-        end
-
+        if not isfile or not readfile then return end
+        if not isfile(CONFIG.BlacklistFile) then blacklist = {} return end
         local content = readfile(CONFIG.BlacklistFile)
-
-        if not content or content == "" then
-            blacklist = {}
-            return
-        end
-
+        if not content or content == "" then blacklist = {} return end
         blacklist = {}
-
         for line in string.gmatch(content, "[^\r\n]+") do
             if line ~= "" and not table.find(blacklist, line) then
                 table.insert(blacklist, line)
             end
         end
-
-        -- Nếu file đã đủ 30 thì clear luôn
         if #blacklist >= CONFIG.MaxBlacklist then
             blacklist = {}
             SaveBlacklist()
-
-            print("[ServerHop] Loaded blacklist was full -> cleared")
         end
-
-        print(
-            "[ServerHop] Loaded blacklist:",
-            #blacklist
-        )
     end)
+end
+
+local function IsBlacklisted(serverId)
+    return table.find(blacklist, serverId) ~= nil
+end
+
+local function AddToBlacklist(serverId)
+    if not serverId or serverId == "" then return end
+    if IsBlacklisted(serverId) then return end
+    if #blacklist >= CONFIG.MaxBlacklist then
+        blacklist = {}
+        SaveBlacklist()
+    end
+    table.insert(blacklist, serverId)
+    SaveBlacklist()
 end
 
 local function SelectTeam()
@@ -344,177 +335,61 @@ local function SendWebhook(fruitName)
     end
 end
 
-local function GetRequest()
-    return (syn and syn.request)
-        or (http and http.request)
-        or http_request
-        or request
-end
-
-local function GetServerList()
-    local servers = {}
-    local req = GetRequest()
-
-    if not req then
-        warn("[ServerHop] Executor không có HTTP request function")
-        return servers
-    end
-
-    local cursor = nil
-    local maxPages = 5
-
-    for _ = 1, maxPages do
-        local url =
-            "https://games.roblox.com/v1/games/"
-            .. game.PlaceId
-            .. "/servers/Public?sortOrder=Asc&limit=100"
-
-        if cursor then
-            url = url .. "&cursor=" .. HttpService:UrlEncode(cursor)
-        end
-
-        local ok, response = pcall(function()
-            return req({
-                Url = url,
-                Method = "GET",
-                Headers = {
-                    ["Content-Type"] = "application/json"
-                }
-            })
-        end)
-
-        if not ok or not response then
-            warn("[ServerHop] Request failed:", response)
-            break
-        end
-
-        local body = response.Body or response.body
-
-        if not body then
-            warn("[ServerHop] Response không có Body")
-            break
-        end
-
-        local decodeOk, data = pcall(function()
-            return HttpService:JSONDecode(body)
-        end)
-
-        if not decodeOk or not data then
-            warn("[ServerHop] JSON decode failed:", data)
-            break
-        end
-
-        if data.data then
-            for _, server in ipairs(data.data) do
-                if server.id
-                    and server.id ~= game.JobId
-                    and server.playing
-                    and server.maxPlayers
-                then
-                    table.insert(servers, {
-                        id = server.id,
-                        count = server.playing,
-                        max = server.maxPlayers
-                    })
-                end
-            end
-        end
-
-        cursor = data.nextPageCursor
-
-        if not cursor then
-            break
-        end
-
-        task.wait(0.15)
-    end
-
-    return servers
-end
-
-
-local function IsBlacklisted(serverId)
-    return table.find(blacklist, serverId) ~= nil
-end
-
-local function AddToBlacklist(serverId)
-    if not serverId or serverId == "" then
-        return
-    end
-
-    if IsBlacklisted(serverId) then
-        return
-    end
-
-    -- Đủ 30 server thì clear TOÀN BỘ
-    if #blacklist >= CONFIG.MaxBlacklist then
-        blacklist = {}
-        SaveBlacklist()
-        print("[ServerHop] Blacklist full -> cleared")
-    end
-
-    table.insert(blacklist, serverId)
-
-    -- Lưu xuống file thật
-    SaveBlacklist()
-
-    print(
-        "[ServerHop] Blacklisted:",
-        serverId,
-        "(" .. #blacklist .. "/" .. CONFIG.MaxBlacklist .. ")"
-    )
-end
-
-
-local function TeleportToServer(serverId)
-    if not serverId or serverId == "" then
+local function HopToRandomServer(retryCount)
+    retryCount = retryCount or 0
+    if retryCount > 5 then
+        UpdateStatus("❌ Hop failed after 5 retries", Color3.fromRGB(255,80,80))
         return false
     end
 
     if isTeleporting then
+        UpdateStatus("⏳ Already hopping...", Color3.fromRGB(255,200,0))
         return false
     end
 
-    if IsBlacklisted(serverId) then
-        warn("[ServerHop] Target is blacklisted:", serverId)
-        return false
+    -- Blacklist server hiện tại trước khi rời
+    if game.JobId and game.JobId ~= "" then
+        AddToBlacklist(game.JobId)
     end
 
     isTeleporting = true
-    pendingHopServer = serverId
+    UpdateStatus("🚀 Hopping attempt " .. (retryCount+1) .. "/5", Color3.fromRGB(255,100,100))
 
-    UpdateStatus(
-        "🚀 Hopping...",
-        Color3.fromRGB(255, 100, 100)
-    )
-
+    -- Teleport đến place instance KHÔNG chỉ định server -> Roblox tự chọn server random (không vào full)
     local success, err = pcall(function()
-        TeleportService:TeleportToPlaceInstance(
-            game.PlaceId,
-            serverId,
-            plr
-        )
+        TeleportService:Teleport(game.PlaceId, plr)
     end)
 
     if not success then
-        warn("[ServerHop] Teleport call failed:", err)
-
-        -- Bảo hộ: server teleport lỗi ngay lập tức
-        AddToBlacklist(serverId)
-
-        pendingHopServer = nil
+        warn("[Hop] Teleport call failed: " .. tostring(err))
+        -- Blacklist server fail
+        if game.JobId and game.JobId ~= "" then
+            AddToBlacklist(game.JobId)
+        end
         isTeleporting = false
-
-        UpdateStatus(
-            "❌ Hop failed",
-            Color3.fromRGB(255, 80, 80)
-        )
-
-        return false
+        -- Retry sau delay ngẫu nhiên
+        local delay = math.random(3, 8)
+        UpdateStatus("⏳ Retry in " .. delay .. "s", Color3.fromRGB(255,150,0))
+        task.wait(delay)
+        return HopToRandomServer(retryCount + 1)
     end
 
+    -- Nếu teleport thành công, script sẽ bị ngắt do tải lại game
     return true
 end
+
+-- Bắt sự kiện teleport fail (nếu có)
+TeleportService.TeleportInitFailed:Connect(function(teleportPlayer, teleportResult, errorMessage)
+    if teleportPlayer ~= plr then return end
+    warn("[Hop] TeleportInitFailed: " .. tostring(teleportResult) .. " - " .. tostring(errorMessage))
+    if game.JobId and game.JobId ~= "" then
+        AddToBlacklist(game.JobId)
+    end
+    isTeleporting = false
+    -- Tự retry sau 3s
+    task.wait(3)
+    HopToRandomServer(0)
+end)
 
 TeleportService.TeleportInitFailed:Connect(function(
     teleportPlayer,
@@ -714,64 +589,41 @@ local function UpdateStatus(text, color)
     end
 end
 
-local function MainProcess()
-    LoadBlacklist()
-    SelectTeam()
-    CreateUI()
-    UpdateStatus("✅ Ready", Color3.fromRGB(0, 255, 0))
-        -- Scan fruits
-        UpdateStatus("🔍 Scanning for fruits...", Color3.fromRGB(255, 255, 0))
-        task.wait(2)
-        local found = ScanFruits()
+-- ===== MAIN =====
+LoadBlacklist()
+SelectTeam()
+CreateUI()
+UpdateStatus("✅ Ready", Color3.fromRGB(0, 255, 0))
 
-        if #found > 0 then
-            UpdateStatus(
-                "📦 Waiting for fruit...",
-                Color3.fromRGB(0, 200, 255)
-            )
-        
-            -- Cho fruit thời gian chuyển vào Backpack
-            task.wait(1)
-        
-            local stored = storeAllFruits()
-        
-            -- Thử lại nếu lần đầu fruit chưa kịp vào inventory
-            if #stored == 0 then
-                task.wait(1)
-                stored = storeAllFruits()
+-- Scan
+UpdateStatus("🔍 Scanning for fruits...", Color3.fromRGB(255, 255, 0))
+task.wait(2)
+local found = ScanFruits()
+
+if #found > 0 then
+    UpdateStatus("📦 Waiting for fruit...", Color3.fromRGB(0, 200, 255))
+    task.wait(1)
+    local stored = storeAllFruits()
+    if #stored == 0 then
+        task.wait(1)
+        stored = storeAllFruits()
+    end
+    if #stored > 0 then
+        for _, fruitName in ipairs(stored) do
+            if not table.find(fruitLog, fruitName) then
+                table.insert(fruitLog, fruitName)
+                collectedCount = collectedCount + 1
+                SendWebhook(fruitName)
             end
-        
-            if #stored > 0 then
-                for _, fruitName in ipairs(stored) do
-                    if not table.find(fruitLog, fruitName) then
-                        table.insert(fruitLog, fruitName)
-                        collectedCount = collectedCount + 1
-                        SendWebhook(fruitName)
-                    end
-                end
-        
-                UpdateStatus(
-                    "✅ Stored " .. #stored .. " fruit(s)",
-                    Color3.fromRGB(0, 255, 0)
-                )
-            else
-                UpdateStatus(
-                    "❌ Fruit found but store failed",
-                    Color3.fromRGB(255, 100, 100)
-                )
-            end
-        else
-            UpdateStatus(
-                "❌ No Fruit",
-                Color3.fromRGB(255, 100, 100)
-            )
         end
-        task.wait(2.5)
-        UpdateStatus("🔄 Hopping to new server...", Color3.fromRGB(255, 200, 0))
-        TeleportToServer()
-        TeleportToServer()
-        TeleportToServer()
-        TeleportToServer()
+        UpdateStatus("✅ Stored " .. #stored .. " fruit(s)", Color3.fromRGB(0, 255, 0))
+    else
+        UpdateStatus("❌ Store failed", Color3.fromRGB(255, 100, 100))
+    end
+else
+    UpdateStatus("❌ No Fruit", Color3.fromRGB(255, 100, 100))
 end
 
-pcall(MainProcess)
+task.wait(2.5)
+UpdateStatus("🔄 Hopping...", Color3.fromRGB(255, 200, 0))
+HopServer()
