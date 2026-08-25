@@ -769,7 +769,9 @@ local function MainProcess()
         task.wait(2.5)
         UpdateStatus("🔄 Hopping to new server...", Color3.fromRGB(255, 200, 0))
         TeleportToServer()
-        task.wait(1)
+        TeleportToServer()
+        TeleportToServer()
+        TeleportToServer()
 end
 
 pcall(MainProcess)
