@@ -719,9 +719,6 @@ local function MainProcess()
     SelectTeam()
     CreateUI()
     UpdateStatus("✅ Ready", Color3.fromRGB(0, 255, 0))
-    
-    -- Vòng lặp chính: Scan -> Store -> Hop ngay lập tức
-    while task.wait(1) do
         -- Scan fruits
         UpdateStatus("🔍 Scanning for fruits...", Color3.fromRGB(255, 255, 0))
         task.wait(2)
@@ -773,7 +770,6 @@ local function MainProcess()
         UpdateStatus("🔄 Hopping to new server...", Color3.fromRGB(255, 200, 0))
         TeleportToServer()
         task.wait(1)
-    end
 end
 
 pcall(MainProcess)
