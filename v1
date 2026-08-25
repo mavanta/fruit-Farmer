@@ -2,8 +2,8 @@ local FruitFarmRunning = false
 if FruitFarmRunning then return end
 FruitFarmRunning = true
 
-_G.WebhookUrl = _G.WebhookUrl or ""
-_G.autoteam = _G.autoteam or "Pirates"
+getgenv().WebhookUrl = getgenv().WebhookUrl or ""
+getgenv().autoteam = getgenv().autoteam or "Pirates"
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -149,7 +149,7 @@ local function SelectTeam()
         end
         task.wait(3)
         
-        local realteam = _G.autoteam or "Pirates"
+        local realteam = getgenv().autoteam or "Pirates"
         local pg = plr:FindFirstChild("PlayerGui")
         
         -- Nếu không có PlayerGui thì thoát
@@ -339,7 +339,7 @@ local function SendWebhook(fruitName)
                     ["timestamp"] = os.date("!%Y-%m-%dT%TZ")
                 }}
             }
-            HttpService:PostAsync(_G.WebhookUrl, HttpService:JSONEncode(embed), Enum.HttpContentType.ApplicationJson)
+            HttpService:PostAsync(getgenv().WebhookUrl, HttpService:JSONEncode(embed), Enum.HttpContentType.ApplicationJson)
         end)
     end
 end
