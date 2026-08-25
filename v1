@@ -771,7 +771,7 @@ local function MainProcess()
         end
         task.wait(2.5)
         UpdateStatus("🔄 Hopping to new server...", Color3.fromRGB(255, 200, 0))
-        AutoHop()
+        TeleportToServer()
         task.wait(1)
     end
 end
